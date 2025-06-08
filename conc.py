@@ -54,6 +54,10 @@ class CatString:
         if isinstance(other, str):
             return self.value == other
         return NotImplemented
+        
+    def __hash__(self):
+        # Delegate the hash calculation to the underlying string.
+        return hash(self.value)
 
 
 class Parser:
@@ -259,10 +263,18 @@ class Interpreter:
         self.quotation_stack[-1].append(token)
 
     def _eval_one(self, token):
-        """Evaluates a single token."""
         if isinstance(token, Word):
             if token.value in self.words:
-                self.words[token.value]()
+                definition = self.words[token.value]
+                if callable(definition):
+                    # It's a built-in (primitive) word
+                    definition()
+                elif isinstance(definition, list):
+                    # It's a user-defined word (a quotation)
+                    self._eval_quotation(definition)
+                else:
+                    # Should not happen with proper define
+                    raise TypeError(f"Invalid definition type for '{token.value}'")
             else:
                 raise NameError(f"Unknown word: '{token.value}'")
         elif isinstance(token, (int, float, bool, list,CatString)):
@@ -667,10 +679,10 @@ class Interpreter:
 
     def _word_define(self):
         name, quotation = self.stack.pop(), self.stack.pop()
-        if not isinstance(name, str) or not isinstance(quotation, list):
+        if not isinstance(name, CatString) or not isinstance(quotation, list):
             raise TypeError("'define' requires a quotation and a name (string).")
         # When the new word is called, it will execute the pre-parsed quotation
-        self.words[name] = lambda: self._eval_quotation(quotation)
+        self.words[name] = quotation
 
     def _word_call(self):
         quotation = self.stack.pop()
