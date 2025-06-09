@@ -1,6 +1,7 @@
 import operator
 import argparse
 import sys
+import locale
 from collections import namedtuple
 try:
     # Unix-like systems
@@ -75,7 +76,7 @@ class Parser:
         Parses and returns the very next token from the input stream.
         Returns None if the end of the stream is reached.
         """
-        self._skip_whitespace_and_comments()
+        self._skip_whitespace()
         if self.pos >= len(self.code):
             return None # Signal end of input
         return self._parse_next_token()
@@ -87,7 +88,7 @@ class Parser:
         return r
         
 
-    def _skip_whitespace_and_comments(self):
+    def _skip_whitespace(self):
         while self.pos < len(self.code):
             if self.code[self.pos].isspace():
                 self.pos += 1
@@ -215,21 +216,39 @@ class Interpreter:
             self.stack.clear()
             
             while (token := self.parser.next_token()) is not None:
-                # This is the main loop from before
-                in_comment = self.comment_level > 0
-                is_comment_control_word = token in (Word('(//'), Word('//)'))
+                # State 1: Are we dealing with a comment control word?
+                if token == Word('(//'):
+                    self.comment_level += 1
+                    continue
+                if token == Word('//)'):
+                    # Prevent decrementing below zero
+                    if self.comment_level > 0:
+                        self.comment_level -= 1
+                    continue # Always skip to the next token
 
-                if is_comment_control_word:
-                    self._eval_one(token)
+                # State 2: Are we inside a comment block? If so, ignore everything.
+                if self.comment_level > 0:
                     continue
-                if in_comment:
-                    continue
+
+                # --- From here on, we are not in a comment ---
+
+                # State 3: Are we compiling a quotation?
+                is_compiling = len(self.quotation_stack) > 0
                 
-                is_eval_word = self.quotation_level == 0 or token in (Word('['), Word(']'))
-                if is_eval_word:
-                    self._eval_one(token)
-                else:
+                # Handle quotation control words, which always execute.
+                if token == Word('['):
+                    self._eval_one(token) # This will start a new quotation
+                    continue
+                if token == Word(']'):
+                    self._eval_one(token) # This will finish a quotation
+                    continue
+
+                # If we are compiling, append the token and move on.
+                if is_compiling:
                     self._compile_to_quotation(token)
+                else:
+                    # State 4: We are not commenting or compiling, so execute immediately.
+                    self._eval_one(token)
 
         except (IndexError, TypeError, NameError, ValueError) as e:
             # --- Language Error Handling ---
@@ -249,6 +268,11 @@ class Interpreter:
             if is_interactive:
                 # Restore the terminal to its original state
                 termios.tcsetattr(fd, termios.TCSADRAIN, self.old_settings)
+            
+            if len(self.quotation_stack) > 0:
+                # Using the simplified state from suggestion #1
+                print(f"\r\nRuntime Error: {len(self.quotation_stack)} unterminated quotation(s).", file=sys.stderr)
+                sys.exit(1)
             
             # Now we can do final checks that might exit the program
             if self.comment_level > 0:
@@ -398,8 +422,16 @@ class Interpreter:
             if char_byte in (b'\x03', b'\x1a'): # Ctrl+C or Ctrl+Z (EOF)
                  self.stack.append(-1)
             else:
-                # We must decode the byte into a string to get the code point
-                self.stack.append(ord(char_byte.decode('utf-8')))
+                # Use the system's preferred encoding as a fallback from utf-8
+                try:
+                    encoding = 'utf-8'
+                    decoded_char = char_byte.decode(encoding)
+                except UnicodeDecodeError:
+                    encoding = locale.getpreferredencoding()
+                    decoded_char = char_byte.decode(encoding, errors='ignore')
+                
+                if decoded_char:
+                    self.stack.append(ord(decoded_char))
 
         else: # "unsupported" platform
             # Fallback to buffered input
@@ -486,67 +518,44 @@ class Interpreter:
         # final stack state.
         self.stack.extend(results)
 
-
-    # In Interpreter class
-    def _word_cleave(self):
-        quot_seq, x = self.stack.pop(), self.stack.pop()
-        if not isinstance(quot_seq, list):
-            raise TypeError("'cleave' requires a sequence of quotations.")
-        
+    def _internal_cleave(self, x, quot_seq: list):
+        """
+        Internal helper. Applies a list of quotations to a single item x.
+        Pushes all results back onto the stack.
+        """
         results = []
         for quot in quot_seq:
             if not isinstance(quot, list):
-                raise TypeError("The sequence for 'cleave' must only contain quotations.")
+                # Centralized error checking
+                raise TypeError("A sequence provided to a combinator must only contain quotations.")
+            
+            # The core operation: push x, run quot, store result
             self.stack.append(x)
             self._eval_quotation(quot)
             results.append(self.stack.pop())
             
         self.stack.extend(results)
 
-
-    def _word_tri(self):
-        q3, q2, q1, x = self.stack.pop(), self.stack.pop(), self.stack.pop(), self.stack.pop()
-        if not isinstance(q1, list) or not isinstance(q2, list) or not isinstance(q3, list):
-            raise TypeError("'tri' requires three quotations.")
-        
-        # First branch
-        self.stack.append(x)
-        self._eval_quotation(q1)
-        r1 = self.stack.pop() # Temporarily store the result
-
-        # Second branch
-        self.stack.append(x)
-        self._eval_quotation(q2)
-        r2 = self.stack.pop() # Get the second result
-        
-        # Third branch
-        self.stack.append(x)
-        self._eval_quotation(q3)
-        r3 = self.stack.pop() # Get the third result
-
-        # Push both results back
-        self.stack.append(r1)
-        self.stack.append(r2)
-        self.stack.append(r3)
-
     def _word_bi(self):
+        # Stack: ( x q1 q2 -- r1 r2 )
         q2, q1, x = self.stack.pop(), self.stack.pop(), self.stack.pop()
         if not isinstance(q1, list) or not isinstance(q2, list):
             raise TypeError("'bi' requires two quotations.")
-        
-        # First branch
-        self.stack.append(x)
-        self._eval_quotation(q1)
-        r1 = self.stack.pop() # Temporarily store the result
+        self._internal_cleave(x, [q1, q2])
 
-        # Second branch
-        self.stack.append(x)
-        self._eval_quotation(q2)
-        r2 = self.stack.pop() # Get the second result
+    def _word_tri(self):
+        # Stack: ( x q1 q2 q3 -- r1 r2 r3 )
+        q3, q2, q1, x = self.stack.pop(), self.stack.pop(), self.stack.pop(), self.stack.pop()
+        if not isinstance(q1, list) or not isinstance(q2, list) or not isinstance(q3, list):
+            raise TypeError("'tri' requires three quotations.")
+        self._internal_cleave(x, [q1, q2, q3])
 
-        # Push both results back
-        self.stack.append(r1)
-        self.stack.append(r2)
+    def _word_cleave(self):
+        # Stack: ( x {q1...qN} -- r1...rN )
+        quot_seq, x = self.stack.pop(), self.stack.pop()
+        if not isinstance(quot_seq, list):
+            raise TypeError("'cleave' requires a sequence of quotations.")
+        self._internal_cleave(x, quot_seq)
 
     def _word_size(self):
         seq = self.stack.pop()
@@ -625,23 +634,24 @@ class Interpreter:
 
     def _word_right_bracket(self):
         """Ends the current quotation."""
-        self.quotation_level -= 1
-        if self.quotation_level < 0:
+        # Check if we are actually in a quotation before popping
+        if not self.quotation_stack:
             raise ValueError("Mismatched brackets: extra ']' found.")
 
         # Pop the completed quotation from our build stack
         completed_quot = self.quotation_stack.pop()
 
-        if self.quotation_level == 0:
-            # We are back at the top level. Push the final quotation to the main data stack.
+        if not self.quotation_stack:
+            # The quotation stack is now empty, so we are back at the top level.
+            # Push the final quotation to the main data stack.
             self.stack.append(completed_quot)
         else:
-            # This was a nested quotation. Append it as data to its parent.
+            # This was a nested quotation. Append it to its parent.
             self.quotation_stack[-1].append(completed_quot)
 
     def _word_read_word(self):
         next_word_token = self.parser.next_raw_token()
-        self.stack.append(next_word_token.value)
+        self.stack.append(CatString(next_word_token.value))
 
 
     def _word_hex(self):
