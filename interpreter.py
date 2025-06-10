@@ -17,6 +17,7 @@ except ImportError:
         PLATFORM = "unsupported"
         
 from parser import *
+from conc_types import *
 
 # ===================================================================
 #      INTERPRETER: Executes tokens as they are parsed
@@ -162,6 +163,7 @@ class Interpreter:
             # === Metaprogramming ===
             'define': self._word_define,     # ( quot name -- )
             'read-word': self._word_read_word,
+            "'": self._word_quote,
             # === Parsing Words (New Category!) ===
             'hex:':    self._word_hex,        # ( -- ) Reads next word as hex
             # === Quotation / Execution ===
@@ -182,6 +184,7 @@ class Interpreter:
             '-':      self._make_binary_op(operator.sub),
             '*':      self._make_binary_op(operator.mul),
             '/':      self._make_binary_op(operator.truediv),
+            '//':      self._make_binary_op(operator.floordiv),
             'mod':    self._make_binary_op(operator.mod),
             'negate': lambda: self.stack.append(-self.stack.pop()),
             '==':     self._make_binary_op(operator.eq),
@@ -199,7 +202,7 @@ class Interpreter:
             'compose': self._word_compose,   # ( q1 q2 -- q_new )
             'cons':    self._word_cons,      # ( item list -- list' )
             'unit':    lambda: self.stack.append([self.stack.pop()]),
-            'empty?':  lambda: self.stack.append(len(self.stack.pop()) == 0),
+            '[]?':  lambda: self.stack.append(len(self.stack.pop()) == 0),
             '.s':      lambda: print(f"Stack: {self.stack}"),
             '.':       lambda: print(self.stack.pop()),
             'print':   lambda: print(str(self.stack.pop()), end=""),
@@ -218,12 +221,46 @@ class Interpreter:
             "tri": self._word_tri,
             "cleave": self._word_cleave,
             "spread": self._word_spread,
-            "empty": self._word_empty,
-            "key": self._word_key,
+            "[]": self._word_empty,
+            "get-char": self._word_key,
             "emit": self._word_emit,
             "while": self._word_while,
+            "{}": self._word_table_new,
+            "table-get": self._word_table_get,
+            "table-set": self._word_table_set,
         }
         return words
+
+    def _word_table_new(self):
+        new_table = Table()
+        self.stack.append(new_table)
+        
+    def _word_table_get(self):
+        """
+        ( table key -- value )
+        Retrieves a value from a table. Pushes the result (or None) to the stack.
+        """
+
+        key = self.stack.pop()
+        table = self.stack.pop()
+        
+        if not isinstance(table, Table):
+            raise TypeError("'tbl.get' requires a table as the first argument")
+
+        value = table.get(key)
+        self.stack.append(value)
+        
+    def _word_table_set(self):
+        key = self.stack.pop()
+        value = self.stack.pop()
+        table = self.stack.pop()
+
+        if not isinstance(table, Table):
+            raise TypeError("'tbl.set' requires a table as the first argument")
+
+        table.set(key, value)
+        self.stack.append(table)
+        
 
     def _word_while(self):
         """
@@ -498,7 +535,10 @@ class Interpreter:
     def _word_read_word(self):
         next_word_token = self.parser.next_raw_token()
         self.stack.append(CatString(next_word_token.value))
-
+        
+    def _word_quote(self):
+        next_word_token = self.parser.next_raw_token()
+        self.stack.append(next_word_token)
 
     def _word_hex(self):
         """A parsing word. It asks the parser for the next token,
@@ -542,8 +582,12 @@ class Interpreter:
 
     def _word_call(self):
         quotation = self.stack.pop()
-        if not isinstance(quotation, list): raise TypeError("'call' requires a quotation.")
-        self._eval_quotation(quotation)
+        if isinstance(quotation, list):
+            self._eval_quotation(quotation)
+        else:
+            self._eval_one(quotation)
+        #raise TypeError("'call' requires a quotation.")
+        
     
     def _word_dip(self):
         quotation, item_to_save = self.stack.pop(), self.stack.pop()
