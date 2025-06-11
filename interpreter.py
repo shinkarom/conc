@@ -64,10 +64,10 @@ class Interpreter:
             
             while (token := self.parser.next_token()) is not None:
                 # State 1: Are we dealing with a comment control word?
-                if token == Word('(//'):
+                if token == Symbol('(//'):
                     self.comment_level += 1
                     continue
-                if token == Word('//)'):
+                if token == Symbol('//)'):
                     # Prevent decrementing below zero
                     if self.comment_level > 0:
                         self.comment_level -= 1
@@ -83,10 +83,10 @@ class Interpreter:
                 is_compiling = len(self.quotation_stack) > 0
                 
                 # Handle quotation control words, which always execute.
-                if token == Word('['):
+                if token == Symbol('['):
                     self._eval_one(token) # This will start a new quotation
                     continue
-                if token == Word(']'):
+                if token == Symbol(']'):
                     self._eval_one(token) # This will finish a quotation
                     continue
 
@@ -134,7 +134,7 @@ class Interpreter:
         self.quotation_stack[-1].append(token)
 
     def _eval_one(self, token):
-        if isinstance(token, Word):
+        if isinstance(token, Symbol):
             if token.value in self.words:
                 definition = self.words[token.value]
                 if callable(definition):
@@ -544,7 +544,7 @@ class Interpreter:
         """A parsing word. It asks the parser for the next token,
         interprets its value as a hex number, and pushes it to the stack."""
         next_word_token = self.parser.next_token()
-        if not isinstance(next_word_token, Word):
+        if not isinstance(next_word_token, Symbol):
             raise TypeError("HEX must be followed by a word to be interpreted as hex.")
         
         try:

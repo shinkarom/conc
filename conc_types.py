@@ -1,6 +1,6 @@
 from collections import namedtuple
 
-class Word(namedtuple("Word", "value")):
+class Symbol(namedtuple("Symbol", "value")):
     """A token representing a word. Its repr is just its name."""
     def __repr__(self):
         return "|" + str(self.value) + "|"

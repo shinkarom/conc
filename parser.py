@@ -22,7 +22,7 @@ class Parser:
 
     def next_raw_token(self):
         r = self.next_token()
-        if not isinstance(r, Word):
+        if not isinstance(r, Symbol):
             raise TypeError(f"Symbol expected, got {r}")
         return r
         
@@ -43,7 +43,7 @@ class Parser:
         return self._parse_atom()
     
     # In the Parser class
-    def _parse_piped_word(self) -> Word:
+    def _parse_piped_word(self):
         """
         Parses a |...| "verbatim" word.
         - All characters are literal, including newlines and backslashes.
@@ -63,7 +63,7 @@ class Parser:
             # Check for the unescaped terminator
             elif char == '|':
                 self.pos += 1 # Consume the closing '|'
-                return Word("".join(value_chars))
+                return Symbol("".join(value_chars))
             
             # Otherwise, treat the character as-is
             else:
@@ -156,4 +156,4 @@ class Parser:
         try: return int(token_str)
         except ValueError:
             try: return float(token_str)
-            except ValueError: return Word(token_str)
+            except ValueError: return Symbol(token_str)
