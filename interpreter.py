@@ -36,12 +36,7 @@ class Interpreter:
         self.quotation_level = 0
         self.quotation_stack = [] # A stack to hold lists being built
         
-        self.comment_level = 0
-        
         self.words = self._create_core_words()
-
-    def add_word(self, name: str, func: callable):
-        self.words[name] = func
 
     def run(self):
         """
@@ -49,51 +44,31 @@ class Interpreter:
         """
         is_interactive = PLATFORM == "unix" and sys.stdin.isatty()
         fd = None
-        
         if is_interactive:
             fd = sys.stdin.fileno()
             self.old_settings = termios.tcgetattr(fd)
             tty.setraw(fd)
-
         try:
             self.stack.clear()
-            
-            while (token := self.parser.next_token()) is not None:
-                    
+            while (token := self.parser.next_token()) is not None: 
                 is_compiling = len(self.quotation_stack) > 0
-                
                 immediate_words = [Word('['), Word(']')]
-
                 if is_compiling and token not in immediate_words:
-                    self._compile_to_quotation(token)
+                    self.quotation_stack[-1].append(token)
                 else:
                     self._eval_one(token)
-
         except (IndexError, TypeError, NameError, ValueError) as e:
             print(f"\r\nRuntime Error: {e}", file=sys.stderr)
             print(f"Execution halted. Current stack: {self.stack}", file=sys.stderr)
-        
         except KeyboardInterrupt:
             print("\r\nInterrupted by user.", file=sys.stderr)
-
         finally:
             if is_interactive:
-                termios.tcsetattr(fd, termios.TCSADRAIN, self.old_settings)
-            
+                termios.tcsetattr(fd, termios.TCSADRAIN, self.old_settings) 
             if len(self.quotation_stack) > 0:
                 print(f"\r\nRuntime Error: {len(self.quotation_stack)} unterminated quotation(s).", file=sys.stderr)
-                sys.exit(1)
-            
-            if self.comment_level > 0:
-                print(f"\r\nRuntime Error: Unterminated comment.", file=sys.stderr)
-                sys.exit(1)
-                
-        return self.stack
-
-
-    def _compile_to_quotation(self, token):
-        """Appends a token to the quotation currently being built."""
-        self.quotation_stack[-1].append(token)
+                sys.exit(1)      
+        return self.stack      
 
     def _eval_one(self, token):
         if isinstance(token, Word):
@@ -102,20 +77,19 @@ class Interpreter:
                 if callable(definition):
                     definition()
                 elif isinstance(definition, list):
-                    self._eval_quotation(definition)
+                    for token in definition:
+                        self._eval_one(token)
                 else:
                     raise TypeError(f"Invalid definition type for '{token.value}'")
             else:
                 raise NameError(f"Unknown word: '{token.value}'")
-        elif isinstance(token, (int, float, bool, list,str)):
+        elif isinstance(token, (int, float, bool, str)):
             self.stack.append(token)
+        elif isinstance(token, list):
+            for t in token:
+                self._eval_one(t)
         else:
             raise TypeError(f"Invalid token type encountered: {type(token)}")
-
-    def _eval_quotation(self, tokens: list):
-        """Evaluates a list of tokens (typically from a quotation)."""
-        for token in tokens:
-            self._eval_one(token)
     
     def _create_core_words(self):
         words = {
@@ -232,13 +206,13 @@ class Interpreter:
             raise TypeError("'while' requires two quotations.")
         
         # Evaluate the condition for the first time
-        self._eval_quotation(cond_quot)
+        self._eval_one(cond_quot)
         
         while self.stack.pop():
             # If true, run the body
-            self._eval_quotation(body_quot)
+            self._eval_one(body_quot)
             # And check the condition again for the next iteration
-            self._eval_quotation(cond_quot)
+            self._eval_one(cond_quot)
 
     # In Interpreter class
     def _word_key(self):
@@ -342,7 +316,7 @@ class Interpreter:
             
             # Perform the call for one pair
             self.stack.append(item)
-            self._eval_quotation(quot)
+            self._eval_one(quot)
             results.append(self.stack.pop())
         
         # The results are [r_1, r_2, ...]. Pushing them back in this
@@ -363,7 +337,7 @@ class Interpreter:
             
             # The core operation: push x, run quot, store result
             self.stack.append(x)
-            self._eval_quotation(quot)
+            self._eval_one(quot)
             results.append(self.stack.pop())
             
         self.stack.extend(results)
@@ -422,7 +396,7 @@ class Interpreter:
         result = []
         for item in seq:
             self.stack.append(item)
-            self._eval_quotation(quotation)
+            self._eval_one(quotation)
             if self.stack.pop(): # Check if the result is true
                 result.append(item)
         self.stack.append(result)
@@ -436,7 +410,7 @@ class Interpreter:
         for item in seq:
             self.stack.append(accumulator)
             self.stack.append(item)
-            self._eval_quotation(quotation)
+            self._eval_one(quotation)
             accumulator = self.stack.pop()
         self.stack.append(accumulator)
 
@@ -447,7 +421,7 @@ class Interpreter:
         
         for item in seq:
             self.stack.append(item)
-            self._eval_quotation(quotation)
+            self._eval_one(quotation)
 
     def _word_comment(self):
         nesting_level = 1
@@ -506,7 +480,7 @@ class Interpreter:
         except ValueError:
             raise ValueError(f"Invalid hexadecimal number: '{next_word_token.value}'")
 
-    # --- Word Implementations (updated to use _eval_quotation) ---
+    # --- Word Implementations (updated to use _eval_one) ---
     def _make_binary_op(self, op: callable):
         def word():
             b, a = self.stack.pop(), self.stack.pop()
@@ -534,17 +508,14 @@ class Interpreter:
 
     def _word_call(self):
         quotation = self.stack.pop()
-        if isinstance(quotation, list):
-            self._eval_quotation(quotation)
-        else:
-            self._eval_one(quotation)
+        self._eval_one(quotation)
         #raise TypeError("'call' requires a quotation.")
         
     
     def _word_dip(self):
         quotation, item_to_save = self.stack.pop(), self.stack.pop()
         if not isinstance(quotation, list): raise TypeError("'dip' requires a quotation.")
-        self._eval_quotation(quotation)
+        self._eval_one(quotation)
         self.stack.append(item_to_save)
 
     def _word_if(self):
@@ -552,15 +523,15 @@ class Interpreter:
         if not isinstance(then_quot, list) or not isinstance(else_quot, list):
             raise TypeError("'if' requires two quotations.")
         if condition:
-            self._eval_quotation(then_quot)
+            self._eval_one(then_quot)
         else:
-            self._eval_quotation(else_quot)
+            self._eval_one(else_quot)
 
     def _word_times(self):
         quotation, n = self.stack.pop(), self.stack.pop()
         if not isinstance(n, int) or n < 0: raise TypeError("'times' requires a non-negative integer count.")
         for _ in range(n):
-            self._eval_quotation(quotation)
+            self._eval_one(quotation)
     
     def _word_map(self):
         quotation, seq = self.stack.pop(), self.stack.pop()
@@ -568,7 +539,7 @@ class Interpreter:
         result = []
         for item in seq:
             self.stack.append(item)
-            self._eval_quotation(quotation)
+            self._eval_one(quotation)
             result.append(self.stack.pop())
         self.stack.append(result)
 
