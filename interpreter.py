@@ -48,47 +48,25 @@ class Interpreter:
         Executes a program. Manages raw terminal mode for interactive I/O.
         """
         is_interactive = PLATFORM == "unix" and sys.stdin.isatty()
-        fd = None # Initialize fd to None
-
+        fd = None
+        
         if is_interactive:
-            # Save old terminal settings before entering the try block
             fd = sys.stdin.fileno()
             self.old_settings = termios.tcgetattr(fd)
             tty.setraw(fd)
 
         try:
-            # --- Main Execution Block ---
             self.stack.clear()
             
             while (token := self.parser.next_token()) is not None:
-                # State 1: Are we dealing with a comment control word?
-                if token == Word('(//'):
-                    self.comment_level += 1
-                    continue
-                if token == Word('//)'):
-                    # Prevent decrementing below zero
-                    if self.comment_level > 0:
-                        self.comment_level -= 1
-                    continue 
-                    
-                if self.comment_level > 0:
-                    continue
                     
                 is_compiling = len(self.quotation_stack) > 0
                 
-                # Handle quotation control words, which always execute.
-                if token == Word('['):
-                    self._eval_one(token) # This will start a new quotation
-                    continue
-                if token == Word(']'):
-                    self._eval_one(token) # This will finish a quotation
-                    continue
+                immediate_words = [Word('['), Word(']')]
 
-                # If we are compiling, append the token and move on.
-                if is_compiling:
+                if is_compiling and token not in immediate_words:
                     self._compile_to_quotation(token)
                 else:
-                    # State 4: We are not commenting or compiling, so execute immediately.
                     self._eval_one(token)
 
         except (IndexError, TypeError, NameError, ValueError) as e:
@@ -96,7 +74,6 @@ class Interpreter:
             print(f"Execution halted. Current stack: {self.stack}", file=sys.stderr)
         
         except KeyboardInterrupt:
-            # --- Handle Ctrl+C ---
             print("\r\nInterrupted by user.", file=sys.stderr)
 
         finally:
@@ -186,7 +163,6 @@ class Interpreter:
             '[': self._word_left_bracket,
             ']': self._word_right_bracket,
             "(//": self._word_comment,
-            "//)": self._word_end_comment,
             "filter": self._word_filter,
             "reduce": self._word_reduce,
             "each": self._word_each,
@@ -474,14 +450,17 @@ class Interpreter:
             self._eval_quotation(quotation)
 
     def _word_comment(self):
-        """Increments the comment nesting level."""
-        self.comment_level += 1
+        nesting_level = 1
+        while nesting_level > 0:
+            token = self.parser.next_token()
 
-    def _word_end_comment(self):
-        """Decrements the comment nesting level. Raises error if not in a comment."""
-        if self.comment_level <= 0:
-            raise ValueError("'end-comment' found without matching 'comment'")
-        self.comment_level -= 1
+            if token is None:
+                raise ValueError("Unterminated nested comment: end of input reached.")
+
+            if token == Word('(//'):
+                nesting_level += 1
+            elif token == Word('//)'):
+                nesting_level -= 1
 
     def _word_left_bracket(self):
         """Starts a new quotation."""
