@@ -93,8 +93,7 @@ class Parser:
         except (ValueError, OverflowError):
             raise ValueError(f"Invalid Unicode codepoint U+{codepoint:04X} in \\{escape_type} escape sequence.")
 
-    # === NEW AND IMPROVED ===
-    def _parse_string_literal(self) -> CatString:
+    def _parse_string_literal(self):
         """
         Parses a "processed" string literal with advanced escape sequences.
         """
@@ -134,7 +133,7 @@ class Parser:
                     value_chars.append(escape_char)
             
             elif char == '"': # --- End of the string ---
-                return CatString("".join(value_chars))
+                return str("".join(value_chars))
 
             elif char == '\n': # --- Error case: unescaped newline ---
                 raise ValueError("Unterminated string literal: newline encountered.")

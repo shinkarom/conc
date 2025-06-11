@@ -3,40 +3,7 @@ from collections import namedtuple
 class Word(namedtuple("Word", "value")):
     """A token representing a word. Its repr is just its name."""
     def __repr__(self):
-        return str(self.value)
-
-class CatString:
-    """A custom string type for the language stack.
-    - __str__ returns the raw content (for 'print', '.')
-    - __repr__ returns a quoted representation (for '.s', debug)
-    """
-    def __init__(self, value: str):
-        self.value = value
-
-    def __str__(self):
-        # For end-user display
-        return self.value
-    
-    def __repr__(self):
-        # For developer/stack display. Use Python's repr for proper escaping.
-        return repr(self.value)
-    
-    def __len__(self):
-        return len(self.value)
-        
-    def __eq__(self, other):
-        # Allow comparison with other CatStrings or raw Python strings
-        if isinstance(other, CatString):
-            return self.value == other.value
-        if isinstance(other, str):
-            return self.value == other
-        return NotImplemented
-        
-    def __hash__(self):
-        # Delegate the hash calculation to the underlying string.
-        return hash(self.value)
-
-# --- types.py ---
+        return "|" + str(self.value) + "|"
 
 class Table:
     """

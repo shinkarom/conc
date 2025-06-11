@@ -148,7 +148,7 @@ class Interpreter:
                     raise TypeError(f"Invalid definition type for '{token.value}'")
             else:
                 raise NameError(f"Unknown word: '{token.value}'")
-        elif isinstance(token, (int, float, bool, list,CatString)):
+        elif isinstance(token, (int, float, bool, list,str)):
             self.stack.append(token)
         else:
             raise TypeError(f"Invalid token type encountered: {type(token)}")
@@ -357,8 +357,8 @@ class Interpreter:
         if isinstance(a, (int, float)) and isinstance(b, (int, float)):
             self.stack.append(a + b)
         # Case 2: Strings
-        elif isinstance(a, CatString) and isinstance(b, CatString):
-            self.stack.append(CatString(a.value + b.value))
+        elif isinstance(a, str) and isinstance(b, str):
+            self.stack.append(str(a.value + b.value))
         # Case 3: Lists (concatenation)
         elif isinstance(a, list) and isinstance(b, list):
             self.stack.append(a + b)
@@ -534,7 +534,7 @@ class Interpreter:
 
     def _word_read_word(self):
         next_word_token = self.parser.next_raw_token()
-        self.stack.append(CatString(next_word_token.value))
+        self.stack.append(str(next_word_token.value))
         
     def _word_quote(self):
         next_word_token = self.parser.next_raw_token()
@@ -575,7 +575,7 @@ class Interpreter:
 
     def _word_define(self):
         name, quotation = self.stack.pop(), self.stack.pop()
-        if not isinstance(name, CatString) or not isinstance(quotation, list):
+        if not isinstance(name, str) or not isinstance(quotation, list):
             raise TypeError("'define' requires a quotation and a name (string).")
         # When the new word is called, it will execute the pre-parsed quotation
         self.words[name] = quotation
