@@ -43,8 +43,6 @@ class Interpreter:
     def add_word(self, name: str, func: callable):
         self.words[name] = func
 
-    # In the Interpreter class
-
     def run(self):
         """
         Executes a program. Manages raw terminal mode for interactive I/O.
@@ -64,29 +62,25 @@ class Interpreter:
             
             while (token := self.parser.next_token()) is not None:
                 # State 1: Are we dealing with a comment control word?
-                if token == Symbol('(//'):
+                if token == Word('(//'):
                     self.comment_level += 1
                     continue
-                if token == Symbol('//)'):
+                if token == Word('//)'):
                     # Prevent decrementing below zero
                     if self.comment_level > 0:
                         self.comment_level -= 1
-                    continue # Always skip to the next token
-
-                # State 2: Are we inside a comment block? If so, ignore everything.
+                    continue 
+                    
                 if self.comment_level > 0:
                     continue
-
-                # --- From here on, we are not in a comment ---
-
-                # State 3: Are we compiling a quotation?
+                    
                 is_compiling = len(self.quotation_stack) > 0
                 
                 # Handle quotation control words, which always execute.
-                if token == Symbol('['):
+                if token == Word('['):
                     self._eval_one(token) # This will start a new quotation
                     continue
-                if token == Symbol(']'):
+                if token == Word(']'):
                     self._eval_one(token) # This will finish a quotation
                     continue
 
@@ -98,30 +92,21 @@ class Interpreter:
                     self._eval_one(token)
 
         except (IndexError, TypeError, NameError, ValueError) as e:
-            # --- Language Error Handling ---
-            # The \r moves to the start of the line, \n goes to a new line.
-            # This is important for clean output in raw mode.
             print(f"\r\nRuntime Error: {e}", file=sys.stderr)
             print(f"Execution halted. Current stack: {self.stack}", file=sys.stderr)
-            # We don't exit here; the finally block must run first.
         
         except KeyboardInterrupt:
             # --- Handle Ctrl+C ---
             print("\r\nInterrupted by user.", file=sys.stderr)
 
         finally:
-            # --- CRITICAL Cleanup Block ---
-            # This block runs NO MATTER WHAT: success, language error, or Ctrl+C.
             if is_interactive:
-                # Restore the terminal to its original state
                 termios.tcsetattr(fd, termios.TCSADRAIN, self.old_settings)
             
             if len(self.quotation_stack) > 0:
-                # Using the simplified state from suggestion #1
                 print(f"\r\nRuntime Error: {len(self.quotation_stack)} unterminated quotation(s).", file=sys.stderr)
                 sys.exit(1)
             
-            # Now we can do final checks that might exit the program
             if self.comment_level > 0:
                 print(f"\r\nRuntime Error: Unterminated comment.", file=sys.stderr)
                 sys.exit(1)
@@ -134,17 +119,14 @@ class Interpreter:
         self.quotation_stack[-1].append(token)
 
     def _eval_one(self, token):
-        if isinstance(token, Symbol):
+        if isinstance(token, Word):
             if token.value in self.words:
                 definition = self.words[token.value]
                 if callable(definition):
-                    # It's a built-in (primitive) word
                     definition()
                 elif isinstance(definition, list):
-                    # It's a user-defined word (a quotation)
                     self._eval_quotation(definition)
                 else:
-                    # Should not happen with proper define
                     raise TypeError(f"Invalid definition type for '{token.value}'")
             else:
                 raise NameError(f"Unknown word: '{token.value}'")
@@ -160,17 +142,12 @@ class Interpreter:
     
     def _create_core_words(self):
         words = {
-            # === Metaprogramming ===
             'define': self._word_define,     # ( quot name -- )
             'read-word': self._word_read_word,
             "'": self._word_quote,
-            # === Parsing Words (New Category!) ===
             'hex:':    self._word_hex,        # ( -- ) Reads next word as hex
-            # === Quotation / Execution ===
             'call':   self._word_call,       # ( quot -- ? )
             'dip':    self._word_dip,        # ( item quot -- ? )
-            
-            # ... rest of the words are the same ...
             'dup':    lambda: self.stack.append(self.stack[-1]),
             'drop':   lambda: self.stack.pop(),
             'swap':   self._word_swap,
@@ -228,8 +205,16 @@ class Interpreter:
             "{}": self._word_table_new,
             "table-get": self._word_table_get,
             "table-set": self._word_table_set,
+            "str-concat": self._word_string_concat,
         }
         return words
+
+    def _word_string_concat(self):
+        b, a = self.stack.pop(), self.stack.pop()
+        if isinstance(a, str) and isinstance(b, str):
+            self.stack.append(str(a + b))
+        else:
+            raise TypeError(f"Cannot concat types {type(a)} and {type(b)}, not strings")
 
     def _word_table_new(self):
         new_table = Table()
@@ -259,7 +244,6 @@ class Interpreter:
             raise TypeError("'tbl.set' requires a table as the first argument")
 
         table.set(key, value)
-        self.stack.append(table)
         
 
     def _word_while(self):
@@ -335,11 +319,6 @@ class Interpreter:
         if not isinstance(codepoint, int):
             raise TypeError("'emit' requires an integer code point on the stack.")
         
-        # --- NEW LOGIC for handling newlines ---
-        # The Enter key sends a carriage return (ASCII 13). In raw mode, we must
-        # manually output a full newline sequence ('\r\n') to move the cursor
-        # to the start of the next line. This works robustly on both Windows
-        # and Unix-like terminals in raw mode.
         if codepoint == 13:
             print("\r\n", end="", flush=True)
         else:
@@ -355,12 +334,6 @@ class Interpreter:
         
         # Case 1: Numbers
         if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-            self.stack.append(a + b)
-        # Case 2: Strings
-        elif isinstance(a, str) and isinstance(b, str):
-            self.stack.append(str(a.value + b.value))
-        # Case 3: Lists (concatenation)
-        elif isinstance(a, list) and isinstance(b, list):
             self.stack.append(a + b)
         else:
             raise TypeError(f"Cannot add types {type(a)} and {type(b)}")
@@ -544,7 +517,7 @@ class Interpreter:
         """A parsing word. It asks the parser for the next token,
         interprets its value as a hex number, and pushes it to the stack."""
         next_word_token = self.parser.next_token()
-        if not isinstance(next_word_token, Symbol):
+        if not isinstance(next_word_token, Word):
             raise TypeError("HEX must be followed by a word to be interpreted as hex.")
         
         try:
