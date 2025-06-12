@@ -11,4 +11,6 @@ class Word(namedtuple("Word", "value")):
         
         return NotImplemented
 
+    def __hash__(self):
+        return hash(self.value)
 

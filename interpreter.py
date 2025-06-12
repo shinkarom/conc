@@ -33,10 +33,8 @@ class Interpreter:
         self.stack = []
         self.parser = Parser(code)
         
-        self.quotation_level = 0
-        self.quotation_stack = []
-        
         self.words = self._create_core_words()
+        self.immediate_words = set([Word('['), Word(']')])
 
     def run(self):
         """
@@ -51,12 +49,7 @@ class Interpreter:
         try:
             self.stack.clear()
             while (token := self.parser.next_token()) is not None: 
-                is_compiling = len(self.quotation_stack) > 0
-                immediate_words = [Word('['), Word(']')]
-                if is_compiling and token not in immediate_words:
-                    self.quotation_stack[-1].append(token)
-                else:
-                    self._eval_one(token)
+                self._eval_one(token)
         except (IndexError, TypeError, NameError, ValueError) as e:
             print(f"\r\nRuntime Error: {e}", file=sys.stderr)
             print(f"Execution halted. Current stack: {self.stack}", file=sys.stderr)
@@ -64,10 +57,7 @@ class Interpreter:
             print("\r\nInterrupted by user.", file=sys.stderr)
         finally:
             if is_interactive:
-                termios.tcsetattr(fd, termios.TCSADRAIN, self.old_settings) 
-            if len(self.quotation_stack) > 0:
-                print(f"\r\nRuntime Error: {len(self.quotation_stack)} unterminated quotation(s).", file=sys.stderr)
-                sys.exit(1)      
+                termios.tcsetattr(fd, termios.TCSADRAIN, self.old_settings)   
         return self.stack      
 
     def _eval_one(self, token):
@@ -94,6 +84,7 @@ class Interpreter:
     def _create_core_words(self):
         words = {
             'define': self._word_define,     # ( quot name -- )
+            'read-word-string': self._word_read_word_string,
             'read-word': self._word_read_word,
             "'": self._word_quote,
             'hex:':    self._word_hex,        # ( -- ) Reads next word as hex
@@ -135,7 +126,6 @@ class Interpreter:
             '.':       lambda: print(self.stack.pop()),
             'print':   lambda: print(str(self.stack.pop()), end=""),
             '[': self._word_left_bracket,
-            ']': self._word_right_bracket,
             "(//": self._word_comment,
             "filter": self._word_filter,
             "reduce": self._word_reduce,
@@ -156,8 +146,51 @@ class Interpreter:
             "table-get": self._word_table_get,
             "table-set": self._word_table_set,
             "str-concat": self._word_string_concat,
+            "parse-quotation": self._word_parse_quotation,
+            ":": self._word_colon,
         }
         return words
+
+    def _word_colon(self):
+        n = self.parser.next_token()
+        if not isinstance(n, Word):
+            raise ValueError(f"Word expected but got {n}")
+        self.stack.append(":")
+        self.stack.append(";")
+        self._word_parse_quotation()
+        q = self.stack.pop()
+        self.words[n.value] = q
+
+    def _word_parse_quotation(self):
+        end_delimiter = self.stack.pop()
+        if not isinstance(end_delimiter, str):
+            raise ValueError(f"Expected a string but got {end_delimiter}")
+        start_delimiter = self.stack.pop()
+        if not isinstance(start_delimiter, str):
+            raise ValueError(f"Expected a string but got {start_delimiter}")
+        l = len(self.stack)
+        terminated = False
+        while (token := self.parser.next_token()) is not None: 
+            if isinstance(token,Word):
+                if token.value == end_delimiter:
+                    terminated = True
+                    break
+                if token.value == start_delimiter: # recursion
+                    self.stack.append(start_delimiter)
+                    self.stack.append(end_delimiter)
+                    self._word_parse_quotation()
+                elif token in self.immediate_words:
+                    self._eval_one(token)
+                else:
+                    self.stack.append(token)
+            else:
+                self.stack.append(token)
+        if not terminated:
+            raise ValueError(f"Unterminated quotation: {end_delimiter} expected")
+        quotation = list()
+        while len(self.stack) != l:
+            quotation.append(self.stack.pop())
+        self.stack.append(quotation[::-1])
 
     def _word_string_concat(self):
         b, a = self.stack.pop(), self.stack.pop()
@@ -170,10 +203,6 @@ class Interpreter:
         self.stack.append({})
         
     def _word_table_get(self):
-        """
-        ( table key -- value )
-        Retrieves a value from a table. Pushes the result (or None) to the stack.
-        """
 
         key = self.stack.pop()
         table = self.stack.pop()
@@ -213,32 +242,21 @@ class Interpreter:
             # And check the condition again for the next iteration
             self._eval_one(cond_quot)
 
-    # In Interpreter class
     def _word_key(self):
-        """
-        Reads one character from stdin and pushes its UTF-32 code point.
-        Handles raw mode on supported platforms.
-        Stack: ( -- n )
-        """
         if PLATFORM == "unix":
             char = sys.stdin.read(1)
-            # In raw mode, a Ctrl+D (EOF) might be read as an EOT character (ASCII 4)
-            # or it might close the stream, resulting in an empty string.
-            # We also check for Ctrl+C (ASCII 3) to allow breaking the program.
-            if not char or ord(char) == 4: # EOF
+            if not char or ord(char) == 4:
                 self.stack.append(-1)
-            elif ord(char) == 3: # Ctrl+C
+            elif ord(char) == 3:
                 raise KeyboardInterrupt()
             else:
                 self.stack.append(ord(char))
 
         elif PLATFORM == "windows":
-            # msvcrt.getch() reads a single keypress and returns it as a bytes object
             char_byte = msvcrt.getch()
-            if char_byte in (b'\x03', b'\x1a'): # Ctrl+C or Ctrl+Z (EOF)
+            if char_byte in (b'\x03', b'\x1a'):
                  self.stack.append(-1)
             else:
-                # Use the system's preferred encoding as a fallback from utf-8
                 try:
                     encoding = 'utf-8'
                     decoded_char = char_byte.decode(encoding)
@@ -249,8 +267,7 @@ class Interpreter:
                 if decoded_char:
                     self.stack.append(ord(decoded_char))
 
-        else: # "unsupported" platform
-            # Fallback to buffered input
+        else:
             char = sys.stdin.read(1)
             if not char:
                 self.stack.append(-1)
@@ -259,11 +276,6 @@ class Interpreter:
 
 
     def _word_emit(self):
-        """
-        Pops an integer code point and prints the corresponding character to stdout.
-        Handles raw mode newline translation.
-        Stack: ( n -- )
-        """
         codepoint = self.stack.pop()
         if not isinstance(codepoint, int):
             raise TypeError("'emit' requires an integer code point on the stack.")
@@ -272,16 +284,13 @@ class Interpreter:
             print("\r\n", end="", flush=True)
         else:
             try:
-                # For all other characters, print them as-is.
                 print(chr(codepoint), end="", flush=True)
             except (ValueError, OverflowError):
-                # This handles cases where the number is not a valid Unicode code point.
                 raise ValueError(f"Cannot 'emit' code point {codepoint}: not a valid Unicode value.")
 
     def _word_add(self):
         b, a = self.stack.pop(), self.stack.pop()
         
-        # Case 1: Numbers
         if isinstance(a, (int, float)) and isinstance(b, (int, float)):
             self.stack.append(a + b)
         else:
@@ -436,31 +445,20 @@ class Interpreter:
                 nesting_level -= 1
 
     def _word_left_bracket(self):
-        """Starts a new quotation."""
-        self.quotation_level += 1
-        self.quotation_stack.append([]) # Push a new empty list to build upon
-
-    def _word_right_bracket(self):
-        """Ends the current quotation."""
-        # Check if we are actually in a quotation before popping
-        if not self.quotation_stack:
-            raise ValueError("Mismatched brackets: extra ']' found.")
-
-        # Pop the completed quotation from our build stack
-        completed_quot = self.quotation_stack.pop()
-
-        if not self.quotation_stack:
-            # The quotation stack is now empty, so we are back at the top level.
-            # Push the final quotation to the main data stack.
-            self.stack.append(completed_quot)
-        else:
-            # This was a nested quotation. Append it to its parent.
-            self.quotation_stack[-1].append(completed_quot)
+        self.stack.append("[")
+        self.stack.append("]")
+        self._word_parse_quotation()
 
     def _word_read_word(self):
+        next_word_token = self.parser.next_token()
+        if not isinstance(next_word_token,Word):
+            raise ValueError(f"'read-word' expected a word but got {next_word_token}")
+        self.stack.append(next_word_token)
+      
+    def _word_read_word_string(self):
         next_word_token = self.parser.next_raw_token()
         self.stack.append(str(next_word_token.value))
-        
+      
     def _word_quote(self):
         next_word_token = self.parser.next_raw_token()
         self.stack.append(next_word_token)
