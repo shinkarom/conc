@@ -35,7 +35,7 @@ class Interpreter:
         
         self.words = self._create_core_words()
         self.immediate_words = set([Word('['), Word(']')])
-
+    
     def run(self):
         """
         Executes a program. Manages raw terminal mode for interactive I/O.
@@ -78,6 +78,8 @@ class Interpreter:
             raise TypeError(f"Invalid token type encountered: {type(token)}")
     
     def _eval_list(self,quotation):
+        if not isinstance(quotation, list):
+            raise ValueError(f"{quotaion} is not evaluatable")
         for token in quotation:
             self._eval_one(token)
     
@@ -503,10 +505,11 @@ class Interpreter:
         self.words[name] = quotation
 
     def _word_call(self):
-        quotation = self.stack.pop()
-        self._eval_list(quotation)
-        #raise TypeError("'call' requires a quotation.")
-        
+        item = self.stack.pop()
+        if isinstance(item,Word):
+            self._eval_one(item)
+        else:
+            self._eval_list(item)    
     
     def _word_dip(self):
         quotation, item_to_save = self.stack.pop(), self.stack.pop()
