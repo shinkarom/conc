@@ -67,19 +67,19 @@ class Interpreter:
                 if callable(definition):
                     definition()
                 elif isinstance(definition, list):
-                    for token in definition:
-                        self._eval_one(token)
+                    self._eval_list(definition)
                 else:
                     raise TypeError(f"Invalid definition type for '{token.value}'")
             else:
                 raise NameError(f"Unknown word: '{token.value}'")
-        elif isinstance(token, (int, float, bool, str)):
+        elif isinstance(token, (int, float, bool, list, str)):
             self.stack.append(token)
-        elif isinstance(token, list):
-            for t in token:
-                self._eval_one(t)
         else:
             raise TypeError(f"Invalid token type encountered: {type(token)}")
+    
+    def _eval_list(self,quotation):
+        for token in quotation:
+            self._eval_one(token)
     
     def _create_core_words(self):
         words = {
@@ -146,7 +146,7 @@ class Interpreter:
             "table-get": self._word_table_get,
             "table-set": self._word_table_set,
             "str-concat": self._word_string_concat,
-            "parse-quotation": self._word_parse_quotation,
+            "parse-list": self._word_parse_list,
             ":": self._word_colon,
         }
         return words
@@ -157,11 +157,11 @@ class Interpreter:
             raise ValueError(f"Word expected but got {n}")
         self.stack.append(":")
         self.stack.append(";")
-        self._word_parse_quotation()
+        self._word_parse_list()
         q = self.stack.pop()
         self.words[n.value] = q
 
-    def _word_parse_quotation(self):
+    def _word_parse_list(self):
         end_delimiter = self.stack.pop()
         if not isinstance(end_delimiter, str):
             raise ValueError(f"Expected a string but got {end_delimiter}")
@@ -178,7 +178,7 @@ class Interpreter:
                 if token.value == start_delimiter: # recursion
                     self.stack.append(start_delimiter)
                     self.stack.append(end_delimiter)
-                    self._word_parse_quotation()
+                    self._word_parse_list()
                 elif token in self.immediate_words:
                     self._eval_one(token)
                 else:
@@ -234,13 +234,13 @@ class Interpreter:
             raise TypeError("'while' requires two quotations.")
         
         # Evaluate the condition for the first time
-        self._eval_one(cond_quot)
+        self._eval_list(cond_quot)
         
         while self.stack.pop():
             # If true, run the body
-            self._eval_one(body_quot)
+            self._eval_list(body_quot)
             # And check the condition again for the next iteration
-            self._eval_one(cond_quot)
+            self._eval_list(cond_quot)
 
     def _word_key(self):
         if PLATFORM == "unix":
@@ -324,7 +324,7 @@ class Interpreter:
             
             # Perform the call for one pair
             self.stack.append(item)
-            self._eval_one(quot)
+            self._eval_list(quot)
             results.append(self.stack.pop())
         
         # The results are [r_1, r_2, ...]. Pushing them back in this
@@ -345,7 +345,7 @@ class Interpreter:
             
             # The core operation: push x, run quot, store result
             self.stack.append(x)
-            self._eval_one(quot)
+            self._eval_list(quot)
             results.append(self.stack.pop())
             
         self.stack.extend(results)
@@ -404,7 +404,7 @@ class Interpreter:
         result = []
         for item in seq:
             self.stack.append(item)
-            self._eval_one(quotation)
+            self._eval_list(quotation)
             if self.stack.pop(): # Check if the result is true
                 result.append(item)
         self.stack.append(result)
@@ -418,7 +418,7 @@ class Interpreter:
         for item in seq:
             self.stack.append(accumulator)
             self.stack.append(item)
-            self._eval_one(quotation)
+            self._eval_list(quotation)
             accumulator = self.stack.pop()
         self.stack.append(accumulator)
 
@@ -426,10 +426,9 @@ class Interpreter:
         quotation, seq = self.stack.pop(), self.stack.pop()
         if not isinstance(seq, list):
             raise TypeError("'each' requires a sequence.")
-        
         for item in seq:
             self.stack.append(item)
-            self._eval_one(quotation)
+            self._eval_list(quotation)
 
     def _word_comment(self):
         nesting_level = 1
@@ -447,7 +446,7 @@ class Interpreter:
     def _word_left_bracket(self):
         self.stack.append("[")
         self.stack.append("]")
-        self._word_parse_quotation()
+        self._word_parse_list()
 
     def _word_read_word(self):
         next_word_token = self.parser.next_token()
@@ -505,14 +504,14 @@ class Interpreter:
 
     def _word_call(self):
         quotation = self.stack.pop()
-        self._eval_one(quotation)
+        self._eval_list(quotation)
         #raise TypeError("'call' requires a quotation.")
         
     
     def _word_dip(self):
         quotation, item_to_save = self.stack.pop(), self.stack.pop()
         if not isinstance(quotation, list): raise TypeError("'dip' requires a quotation.")
-        self._eval_one(quotation)
+        self._eval_list(quotation)
         self.stack.append(item_to_save)
 
     def _word_if(self):
@@ -520,15 +519,15 @@ class Interpreter:
         if not isinstance(then_quot, list) or not isinstance(else_quot, list):
             raise TypeError("'if' requires two quotations.")
         if condition:
-            self._eval_one(then_quot)
+            self._eval_list(then_quot)
         else:
-            self._eval_one(else_quot)
+            self._eval_list(else_quot)
 
     def _word_times(self):
         quotation, n = self.stack.pop(), self.stack.pop()
         if not isinstance(n, int) or n < 0: raise TypeError("'times' requires a non-negative integer count.")
         for _ in range(n):
-            self._eval_one(quotation)
+            self._eval_list(quotation)
     
     def _word_map(self):
         quotation, seq = self.stack.pop(), self.stack.pop()
@@ -536,7 +535,7 @@ class Interpreter:
         result = []
         for item in seq:
             self.stack.append(item)
-            self._eval_one(quotation)
+            self._eval_list(quotation)
             result.append(self.stack.pop())
         self.stack.append(result)
 
