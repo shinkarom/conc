@@ -29,12 +29,12 @@ class Interpreter:
     Holds a Parser instance and executes tokens as they are generated.
     """
 
-    def __init__(self, code: str): # <--- MODIFIED
+    def __init__(self, code: str):
         self.stack = []
-        self.parser = Parser(code) # Interpreter now owns the parser
+        self.parser = Parser(code)
         
         self.quotation_level = 0
-        self.quotation_stack = [] # A stack to hold lists being built
+        self.quotation_stack = []
         
         self.words = self._create_core_words()
 
@@ -167,8 +167,7 @@ class Interpreter:
             raise TypeError(f"Cannot concat types {type(a)} and {type(b)}, not strings")
 
     def _word_table_new(self):
-        new_table = Table()
-        self.stack.append(new_table)
+        self.stack.append({})
         
     def _word_table_get(self):
         """
@@ -179,8 +178,8 @@ class Interpreter:
         key = self.stack.pop()
         table = self.stack.pop()
         
-        if not isinstance(table, Table):
-            raise TypeError("'tbl.get' requires a table as the first argument")
+        if not isinstance(table, dict):
+            raise TypeError("'tbl.get' requires a dict as the first argument")
 
         value = table.get(key)
         self.stack.append(value)
@@ -190,10 +189,10 @@ class Interpreter:
         value = self.stack.pop()
         table = self.stack.pop()
 
-        if not isinstance(table, Table):
-            raise TypeError("'tbl.set' requires a table as the first argument")
+        if not isinstance(table, dict):
+            raise TypeError("'tbl.set' requires a dict as the first argument")
 
-        table.set(key, value)
+        table[key] = value
         
 
     def _word_while(self):

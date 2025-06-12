@@ -10,7 +10,7 @@ class Parser:
         self.code = code
         self.pos = 0
 
-    def next_token(self): # <--- CHANGED FROM parse()
+    def next_token(self):
         """
         Parses and returns the very next token from the input stream.
         Returns None if the end of the stream is reached.
@@ -38,11 +38,25 @@ class Parser:
         char = self.code[self.pos]
         if char == '"':
             return self._parse_string_literal()
-        if char == '|': # <--- NEW CASE
+        if char == '|':
             return self._parse_piped_word()
         return self._parse_atom()
     
-    # In the Parser class
+    def _parse_atom(self):
+        start = self.pos
+        while self.pos < len(self.code) and not self.code[self.pos].isspace():
+            self.pos += 1
+        
+        token_str = self.code[start:self.pos]
+        
+        if token_str == 'true': return True
+        if token_str == 'false': return False
+        
+        try: return int(token_str)
+        except ValueError:
+            try: return float(token_str)
+            except ValueError: return Word(token_str)
+    
     def _parse_piped_word(self):
         """
         Parses a |...| "verbatim" word.
@@ -142,18 +156,3 @@ class Parser:
                 value_chars.append(char)
         
         raise ValueError("Unterminated string literal: end of input reached.")
-
-    def _parse_atom(self):
-        start = self.pos
-        while self.pos < len(self.code) and not self.code[self.pos].isspace():
-            self.pos += 1
-        
-        token_str = self.code[start:self.pos]
-        
-        if token_str == 'true': return True
-        if token_str == 'false': return False
-        
-        try: return int(token_str)
-        except ValueError:
-            try: return float(token_str)
-            except ValueError: return Word(token_str)
