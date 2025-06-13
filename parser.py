@@ -47,9 +47,6 @@ class Parser:
         
         token_str = self.code[start:self.pos]
         
-        if token_str == 'true': return True
-        if token_str == 'false': return False
-        
         try: return int(token_str)
         except ValueError:
             try: return float(token_str)

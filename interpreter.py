@@ -117,6 +117,8 @@ class Interpreter:
             '>=':     self._make_binary_op(operator.ge),
             'and':    self._make_binary_op(operator.and_),
             'or':     self._make_binary_op(operator.or_),
+            'true':   lambda: self.stack.append(True),
+            'false':  lambda: self.stack.append(False),
             'not':    lambda: self.stack.append(not self.stack.pop()),
             'if':     self._word_if,       # ( bool then-quot else-quot -- ? )
             'times':  self._word_times,      # ( n quot -- )
