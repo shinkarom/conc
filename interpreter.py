@@ -2,6 +2,7 @@ import operator
 import argparse
 import sys
 import locale
+import re
 try:
     # Unix-like systems
     import tty
@@ -501,7 +502,7 @@ class Interpreter:
         name, quotation = self.stack.pop(), self.stack.pop()
         if not isinstance(name, str) or not isinstance(quotation, list):
             raise TypeError("'define' requires a quotation and a name (string).")
-        # When the new word is called, it will execute the pre-parsed quotation
+        name = re.sub(r"\s+", "", name)
         self.words[name] = quotation
 
     def _word_call(self):

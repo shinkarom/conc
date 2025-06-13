@@ -38,8 +38,6 @@ class Parser:
         char = self.code[self.pos]
         if char == '"':
             return self._parse_string_literal()
-        if char == '|':
-            return self._parse_piped_word()
         return self._parse_atom()
     
     def _parse_atom(self):
@@ -56,37 +54,6 @@ class Parser:
         except ValueError:
             try: return float(token_str)
             except ValueError: return Word(token_str)
-    
-    def _parse_piped_word(self):
-        """
-        Parses a |...| "verbatim" word.
-        - All characters are literal, including newlines and backslashes.
-        - The only special sequence is '\|' to include a literal pipe character.
-        """
-        self.pos += 1 # Consume the opening '|'
-
-        value_chars = []
-        while self.pos < len(self.code):
-            char = self.code[self.pos]
-
-            # Check for the *only* special case: an escaped terminator
-            if char == '\\' and self.pos + 1 < len(self.code) and self.code[self.pos + 1] == '|':
-                value_chars.append('|') # Append the literal pipe
-                self.pos += 2           # And skip both characters ('\' and '|')
-            
-            # Check for the unescaped terminator
-            elif char == '|':
-                self.pos += 1 # Consume the closing '|'
-                return Word("".join(value_chars))
-            
-            # Otherwise, treat the character as-is
-            else:
-                value_chars.append(char)
-                self.pos += 1
-                
-        # If we fall out of the loop, the word was not terminated.
-        raise ValueError("Unterminated piped word: end of input reached.")
-
 
     def _parse_hex_escape(self, num_digits: int, escape_type: str) -> str:
         start_pos = self.pos
