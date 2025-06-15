@@ -21,11 +21,8 @@ def main():
         print(f"Error: Could not read file '{args.filepath}': {e}", file=sys.stderr)
         sys.exit(1)
 
-    # --- New, Simpler Workflow ---
-    # 1. Create an interpreter with the source code
     interpreter = Interpreter(code)
     
-    # 2. Run it. The interpreter handles all parsing and execution internally.
     final_stack = interpreter.run()
 
     if args.debug:

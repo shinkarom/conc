@@ -84,6 +84,42 @@ class Interpreter:
         for token in quotation:
             self._eval_one(token)
     
+    def _check_condition(self, value):
+        if not isinstance(value,(int,float)):
+            raise ValueError(f"{value} is not a condition")
+        return value != 0
+    
+    # --- Word Implementations (updated to use _eval_one) ---
+    def _make_binary_op(self, op: callable):
+        def word():
+            b, a = self.stack.pop(), self.stack.pop()
+            self.stack.append(op(a, b))
+        return word
+        
+    def _make_logical_op(self, op: callable):
+        def word():
+            b, a = self.stack.pop(), self.stack.pop()
+            self.stack.append(1 if op(a, b) else 0)
+        return word
+        
+    def _internal_cleave(self, x, quot_seq: list):
+        """
+        Internal helper. Applies a list of quotations to a single item x.
+        Pushes all results back onto the stack.
+        """
+        results = []
+        for quot in quot_seq:
+            if not isinstance(quot, list):
+                # Centralized error checking
+                raise TypeError("A sequence provided to a combinator must only contain quotations.")
+            
+            # The core operation: push x, run quot, store result
+            self.stack.append(x)
+            self._eval_list(quot)
+            results.append(self.stack.pop())
+            
+        self.stack.extend(results)
+    
     def _create_core_words(self):
         words = {
             'define': self._word_define,     # ( quot name -- )
@@ -106,20 +142,20 @@ class Interpreter:
             '-':      self._make_binary_op(operator.sub),
             '*':      self._make_binary_op(operator.mul),
             '/':      self._make_binary_op(operator.truediv),
-            '//':      self._make_binary_op(operator.floordiv),
+            '//':     self._make_binary_op(operator.floordiv),
             'mod':    self._make_binary_op(operator.mod),
             'negate': lambda: self.stack.append(-self.stack.pop()),
-            '==':     self._make_binary_op(operator.eq),
-            '!=':     self._make_binary_op(operator.ne),
-            '<':      self._make_binary_op(operator.lt),
-            '>':      self._make_binary_op(operator.gt),
-            '<=':     self._make_binary_op(operator.le),
-            '>=':     self._make_binary_op(operator.ge),
-            'and':    self._make_binary_op(operator.and_),
-            'or':     self._make_binary_op(operator.or_),
-            'true':   lambda: self.stack.append(True),
-            'false':  lambda: self.stack.append(False),
-            'not':    lambda: self.stack.append(not self.stack.pop()),
+            '==':     self._make_logical_op(operator.eq),
+            '!=':     self._make_logical_op(operator.ne),
+            '<':      self._make_logical_op(operator.lt),
+            '>':      self._make_logical_op(operator.gt),
+            '<=':     self._make_logical_op(operator.le),
+            '>=':     self._make_logical_op(operator.ge),
+            'and':    self._make_logical_op(operator.and_),
+            'or':     self._make_logical_op(operator.or_),
+            'true':   lambda: self.stack.append(1),
+            'false':  lambda: self.stack.append(0),
+            'not':    lambda: self.stack.append(not self.stack.pop()),           
             'if':     self._word_if,       # ( bool then-quot else-quot -- ? )
             'times':  self._word_times,      # ( n quot -- )
             'map':    self._word_map,        # ( seq quot -- seq' )
@@ -241,7 +277,7 @@ class Interpreter:
         # Evaluate the condition for the first time
         self._eval_list(cond_quot)
         
-        while self.stack.pop():
+        while self._check_condition(self.stack.pop()):
             # If true, run the body
             self._eval_list(body_quot)
             # And check the condition again for the next iteration
@@ -337,24 +373,6 @@ class Interpreter:
         # final stack state.
         self.stack.extend(results)
 
-    def _internal_cleave(self, x, quot_seq: list):
-        """
-        Internal helper. Applies a list of quotations to a single item x.
-        Pushes all results back onto the stack.
-        """
-        results = []
-        for quot in quot_seq:
-            if not isinstance(quot, list):
-                # Centralized error checking
-                raise TypeError("A sequence provided to a combinator must only contain quotations.")
-            
-            # The core operation: push x, run quot, store result
-            self.stack.append(x)
-            self._eval_list(quot)
-            results.append(self.stack.pop())
-            
-        self.stack.extend(results)
-
     def _word_bi(self):
         # Stack: ( x q1 q2 -- r1 r2 )
         q2, q1, x = self.stack.pop(), self.stack.pop(), self.stack.pop()
@@ -410,7 +428,7 @@ class Interpreter:
         for item in seq:
             self.stack.append(item)
             self._eval_list(quotation)
-            if self.stack.pop(): # Check if the result is true
+            if self._check_condition(self.stack.pop()): # Check if the result is true
                 result.append(item)
         self.stack.append(result)
 
@@ -480,13 +498,6 @@ class Interpreter:
             self.stack.append(value)
         except ValueError:
             raise ValueError(f"Invalid hexadecimal number: '{next_word_token.value}'")
-
-    # --- Word Implementations (updated to use _eval_one) ---
-    def _make_binary_op(self, op: callable):
-        def word():
-            b, a = self.stack.pop(), self.stack.pop()
-            self.stack.append(op(a, b))
-        return word
     
     def _word_swap(self):
         a, b = self.stack.pop(), self.stack.pop()
@@ -524,7 +535,7 @@ class Interpreter:
         else_quot, then_quot, condition = self.stack.pop(), self.stack.pop(), self.stack.pop()
         if not isinstance(then_quot, list) or not isinstance(else_quot, list):
             raise TypeError("'if' requires two quotations.")
-        if condition:
+        if self._check_condition(condition):
             self._eval_list(then_quot)
         else:
             self._eval_list(else_quot)
